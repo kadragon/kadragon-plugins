@@ -1,0 +1,23 @@
+{
+  "name": "claude-skills",
+  "owner": {
+    "name": "kadragon"
+  },
+  "metadata": {
+    "description": "A collection of Claude Code plugins by kadragon",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "dev-review-cycle",
+      "source": "./plugins/dev-review-cycle",
+      "description": "Post-development workflow that creates a PR, collects reviews from multiple sources, consolidates feedback, and applies improvements.",
+      "version": "1.0.0",
+      "author": {
+        "name": "kadragon"
+      },
+      "license": "MIT",
+      "keywords": ["review", "pr", "ci", "workflow"]
+    }
+  ]
+}

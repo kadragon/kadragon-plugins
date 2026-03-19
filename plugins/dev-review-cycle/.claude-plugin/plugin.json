@@ -1,0 +1,11 @@
+{
+  "name": "dev-review-cycle",
+  "description": "Post-development workflow that creates a PR, collects reviews from multiple sources, consolidates feedback, and applies improvements.",
+  "version": "1.0.0",
+  "author": {
+    "name": "kadragon"
+  },
+  "homepage": "https://github.com/kadragon/claude-skills",
+  "repository": "https://github.com/kadragon/claude-skills",
+  "license": "MIT"
+}
