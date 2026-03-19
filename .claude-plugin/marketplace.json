@@ -8,8 +8,8 @@
   },
   "plugins": [
     {
-      "name": "cc-plugins",
-      "source": ".",
+      "name": "tools",
+      "source": "./tools",
       "description": "Personal Claude Code skills and agents by kadragon",
       "version": "1.0.0"
     }
