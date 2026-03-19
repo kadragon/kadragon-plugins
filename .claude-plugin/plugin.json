@@ -1,6 +1,6 @@
 {
-  "name": "dev-review-cycle",
-  "description": "Post-development workflow that creates a PR, collects reviews from multiple sources, consolidates feedback, and applies improvements.",
+  "name": "cc-plugins",
+  "description": "Personal Claude Code skills and agents by kadragon",
   "version": "1.0.0",
   "author": {
     "name": "kadragon"
