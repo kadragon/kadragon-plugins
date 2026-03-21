@@ -133,11 +133,12 @@ fi
 FILE_PATH="${FILE_PATH#$CLAUDE_PROJECT_DIR/}"
 
 # Denied patterns — adjust per project
+# Anchored to avoid false positives (e.g., src/environments/ matching .env)
 DENY_PATTERNS=(
-  '\.env'
-  '\.env\.'
-  'credentials'
-  'secrets'
+  '(^|/)\.env$'
+  '(^|/)\.env\.'
+  '(^|/)credentials\.(json|yml|yaml|xml|ini|cfg)$'
+  '(^|/)secrets\.(json|yml|yaml|xml|ini|cfg)$'
   '\.pem$'
   '\.key$'
   '\.p12$'
@@ -230,7 +231,7 @@ Biome handles both formatting and linting in a single tool. The `check --write` 
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.(js|jsx|ts|tsx|json|css)$'; then npx @biomejs/biome check --write \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.(js|jsx|ts|tsx|json|css)$'; then npx @biomejs/biome check --write \"$FILE_PATH\"; fi; exit 0",
       "timeout": 15
     }
   ]
@@ -254,7 +255,7 @@ Biome handles both formatting and linting in a single tool. The `check --write` 
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.(js|jsx|ts|tsx|css|scss|json|md|html|vue|svelte|yaml|yml)$'; then npx prettier --write \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.(js|jsx|ts|tsx|css|scss|json|md|html|vue|svelte|yaml|yml)$'; then npx prettier --write \"$FILE_PATH\"; fi; exit 0",
       "timeout": 30
     }
   ]
@@ -281,7 +282,7 @@ Adapt the command prefix based on the Python package manager:
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then uv run ruff format \"$FILE_PATH\" 2>/dev/null && uv run ruff check --fix \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then uv run ruff format \"$FILE_PATH\" && uv run ruff check --fix \"$FILE_PATH\"; fi; exit 0",
       "timeout": 30
     }
   ]
@@ -295,7 +296,7 @@ Adapt the command prefix based on the Python package manager:
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then ruff format \"$FILE_PATH\" 2>/dev/null && ruff check --fix \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then ruff format \"$FILE_PATH\" && ruff check --fix \"$FILE_PATH\"; fi; exit 0",
       "timeout": 30
     }
   ]
@@ -309,7 +310,7 @@ Adapt the command prefix based on the Python package manager:
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then uv run black --quiet \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.py$'; then uv run black --quiet \"$FILE_PATH\"; fi; exit 0",
       "timeout": 30
     }
   ]
@@ -331,7 +332,7 @@ Adapt the command prefix based on the Python package manager:
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.go$'; then gofmt -w \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.go$'; then gofmt -w \"$FILE_PATH\"; fi; exit 0",
       "timeout": 15
     }
   ]
@@ -345,7 +346,7 @@ Adapt the command prefix based on the Python package manager:
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.rs$'; then rustfmt \"$FILE_PATH\" 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE '\\.rs$'; then rustfmt \"$FILE_PATH\"; fi; exit 0",
       "timeout": 15
     }
   ]
@@ -373,7 +374,7 @@ Customize the blocked command and suggestion:
 
 **JS/TS:**
 - Bun → block `npm` and `yarn`, suggest `bun`
-- pnpm → block `npm` and `yarn`, suggest `pnpm`
+- pnpm → block `npm`, suggest `pnpm`
 - Yarn → block `npm`, suggest `yarn`
 
 **Python:**
@@ -619,7 +620,7 @@ Customize the install command and trigger file based on detected package manager
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE 'package\\.json$'; then bun install 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE 'package\\.json$'; then bun install; fi; exit 0",
       "timeout": 60
     }
   ]
@@ -633,7 +634,7 @@ Customize the install command and trigger file based on detected package manager
   "hooks": [
     {
       "type": "command",
-      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE 'pyproject\\.toml$'; then uv sync 2>/dev/null; fi; exit 0",
+      "command": "INPUT=$(cat); FILE_PATH=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -qE 'pyproject\\.toml$'; then uv sync; fi; exit 0",
       "timeout": 60
     }
   ]
@@ -675,7 +676,7 @@ Customize the install command and trigger file based on detected package manager
   "hooks": [
     {
       "type": "command",
-      "command": "echo \"[Post-compaction context] Branch: $(git branch --show-current 2>/dev/null). Last commit: $(git log --oneline -1 2>/dev/null). Uncommitted changes: $(git status --short 2>/dev/null | wc -l | tr -d ' ') files.\"",
+      "command": "echo \"[Post-compaction context] Branch: $(git branch --show-current 2>/dev/null || echo 'detached'). Last commit: $(git log --oneline -1 2>/dev/null || echo 'no commits'). Uncommitted changes: $(git status --short 2>/dev/null | wc -l | tr -d ' ') files.\"",
       "timeout": 5
     }
   ]

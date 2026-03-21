@@ -68,7 +68,7 @@ cat package.json 2>/dev/null | jq -r '."lint-staged" // empty' 2>/dev/null
 ```bash
 cat .claude/settings.json 2>/dev/null
 cat .claude/settings.local.json 2>/dev/null
-ls -la .claude/hooks/ 2>/dev/null
+ls -la .claude/hooks/ 2>/dev/null || true
 head -100 CLAUDE.md 2>/dev/null
 ```
 
@@ -216,7 +216,7 @@ Store complex hooks (multi-line logic, multiple patterns) as executable scripts 
 Script conventions:
 - Shebang: `#!/usr/bin/env bash`
 - `set -euo pipefail`
-- Parse input: `INPUT=$(cat); VALUE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')`
+- Parse input: `INPUT=$(cat); FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')`
 - Portable paths: `$CLAUDE_PROJECT_DIR`
 - Block: `echo "reason" >&2; exit 2`
 - Allow: `exit 0`
@@ -245,16 +245,23 @@ If gitignored, present options:
 Warning: `.claude/` is in .gitignore.
 
 1. **Remove from .gitignore** — Track settings.json and hooks in git (shareable)
-2. **Selective tracking** — Add `!.claude/settings.json` and `!.claude/hooks/` exceptions
+2. **Selective tracking** — Keep `.claude/` ignored but add exceptions:
+   ```
+   !.claude/
+   .claude/*
+   !.claude/settings.json
+   !.claude/hooks/
+   ```
+   Note: Git requires unignoring the parent directory first (`!.claude/`), then re-ignoring everything inside (`.claude/*`), then selectively unignoring specific items.
 3. **Keep local only** — Don't add to git
 ```
 
 ### 4d. Stage in Git
 
-If option 1 or 2:
+If option 1 or 2 was selected, stage both the hook files AND the `.gitignore` changes:
 
 ```bash
-git add .claude/settings.json .claude/hooks/
+git add .gitignore .claude/settings.json .claude/hooks/
 ```
 
 Do NOT commit — just stage.
