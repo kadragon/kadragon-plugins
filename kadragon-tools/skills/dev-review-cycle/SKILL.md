@@ -22,6 +22,9 @@ Before starting, verify tool availability and detect dynamic values needed throu
 gh auth status >/dev/null 2>&1 || { echo "ERROR: gh CLI not authenticated. Run 'gh auth login' first."; exit 1; }
 
 # Detect optional tools
+GEMINI_AVAILABLE=false
+command -v gemini >/dev/null 2>&1 && GEMINI_AVAILABLE=true
+
 CODEX_AVAILABLE=false
 command -v codex >/dev/null 2>&1 && CODEX_AVAILABLE=true
 ```
@@ -87,16 +90,16 @@ Agent tool parameters:
 
 **Timeout:** When collecting the result, allow up to 10 minutes (600000ms).
 
-#### 2-2: Gemini Code Assist Review
+#### 2-2: Gemini CLI Review
 
-Run the bundled polling script via background Bash. The script handles the polling loop, distinguishes the "Summary" comment from the actual "Code Review", and returns structured JSON.
+Skip this step if `GEMINI_AVAILABLE` is false from pre-flight checks.
 
 ```bash
-# run_in_background: true, timeout: 600000
-bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/poll_gemini_review.sh "${OWNER_REPO}" <PR_NUMBER> 10 60
+# run_in_background: true, timeout: 300000
+gemini -p "Review the code changes on the current branch compared to ${BASE_BRANCH}. Focus on bugs, security issues, performance problems, and code quality. Provide a structured review with file:line references." --yolo
 ```
 
-If the script exits with code 2 (timeout), proceed without Gemini review.
+If the command fails, proceed without this review.
 
 #### 2-3: Codex CLI Review
 
@@ -114,7 +117,7 @@ If the command fails, proceed without this review.
 After launching all sources in parallel, collect results. Allow these timeouts:
 
 - **Claude Code review agent:** 600000ms (10 minutes)
-- **Gemini polling script:** 600000ms (10 minutes)
+- **Gemini CLI:** 300000ms (5 minutes)
 - **Codex CLI:** 300000ms (5 minutes)
 
 After all available reviews are collected, immediately proceed to Step 3.
@@ -254,7 +257,7 @@ To run a subsequent review cycle on the same PR (e.g., after applying changes an
 
 - **Pre-flight fails (gh not authenticated):** Stop the workflow. Report the error and suggest running `gh auth login`.
 - **Step 1 fails:** Stop the workflow and report the error.
-- **Gemini review not found (timeout):** Inform the user and proceed with available reviews.
+- **Gemini CLI not available or fails:** Inform the user and proceed with available reviews.
 - **Codex CLI not available or fails:** Inform the user and proceed with available reviews.
 - **No actionable suggestions from reviews:** Report that reviews found no issues. Skip Steps 4–5 and proceed directly to Step 6 (CI wait and merge).
 - **Push fails (Step 5):** Report the error and suggest the user resolve it manually.
