@@ -59,6 +59,21 @@ After Step 5 (or directly after Step 3 if no changes are needed), proceed throug
 
 ## Workflow
 
+### Step 0: Ensure Feature Branch
+
+Before creating a PR, check if you are on the base branch (e.g., `main`). If so, create a new feature branch automatically — do NOT ask the user for a branch name.
+
+Generate the branch name autonomously based on the staged/unstaged changes:
+
+1. Inspect `git diff` and `git status` to understand what changed.
+2. Derive a short, descriptive branch name (e.g., `feat/add-login-validation`, `fix/null-pointer-handler`, `refactor/cleanup-utils`).
+3. Create and switch to the branch immediately:
+   ```bash
+   git checkout -b <generated-branch-name>
+   ```
+
+If already on a non-base branch, skip this step.
+
 ### Step 1: Create PR
 
 Use the Skill tool directly to invoke `commit-commands:commit-push-pr`. Extract the PR number and URL from the result.
