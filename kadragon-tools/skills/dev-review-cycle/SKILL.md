@@ -110,8 +110,43 @@ Agent tool parameters:
 Skip this step if `GEMINI_AVAILABLE` is false from pre-flight checks.
 
 ```bash
-# run_in_background: true, timeout: 300000
-gemini -p "Review the code changes on the current branch compared to ${BASE_BRANCH}. Focus on bugs, security issues, performance problems, and code quality. Provide a structured review with file:line references." --yolo
+# run_in_background: true, timeout: 600000
+gemini -p "$(cat <<REVIEW_PROMPT
+You are reviewing a proposed code change. Examine the diff of the current branch against ${BASE_BRANCH}.
+
+## What to flag
+
+Only flag issues introduced by this change — not pre-existing problems. Each finding must be:
+- A concrete bug, security vulnerability, or performance regression with a clear reproduction scenario
+- Discrete and actionable (one issue per finding, not vague observations)
+- Something the author would fix if made aware of it
+
+Prefer no finding over a weak finding. Do not pad the review with style nits, praise, or generic advice.
+
+## Priority levels
+
+Tag each finding:
+- [P0] Blocking — data loss, security hole, crash in production
+- [P1] Urgent — incorrect behavior under normal conditions
+- [P2] Normal — edge case bugs, performance issues, maintainability risks
+- [P3] Low — minor improvements worth noting
+
+## Comment format
+
+For each finding, provide:
+1. **Priority tag and title** (one line, imperative mood)
+2. **file:line** reference
+3. **Why** it is a problem (1 paragraph max, matter-of-fact tone)
+4. **When** it manifests (specific inputs, environments, or conditions)
+5. **Suggested fix** (concrete code snippet if applicable, 3 lines max)
+
+## Output structure
+
+List findings ordered by priority (P0 first). After all findings, add:
+- **Overall verdict**: "LGTM" if no P0/P1 issues, or "Changes Requested" with a 1-sentence explanation.
+- If no issues worth flagging exist, say so plainly — do not invent findings.
+REVIEW_PROMPT
+)" --yolo
 ```
 
 If the command fails, proceed without this review.
@@ -121,7 +156,7 @@ If the command fails, proceed without this review.
 Skip this step if `CODEX_AVAILABLE` is false from pre-flight checks.
 
 ```bash
-# run_in_background: true, timeout: 300000
+# run_in_background: true, timeout: 600000
 codex review --base ${BASE_BRANCH}
 ```
 
@@ -132,8 +167,8 @@ If the command fails, proceed without this review.
 After launching all sources in parallel, collect results. Allow these timeouts:
 
 - **Claude Code review agent:** 600000ms (10 minutes)
-- **Gemini CLI:** 300000ms (5 minutes)
-- **Codex CLI:** 300000ms (5 minutes)
+- **Gemini CLI:** 600000ms (10 minutes)
+- **Codex CLI:** 600000ms (10 minutes)
 
 After all available reviews are collected, immediately proceed to Step 3.
 
