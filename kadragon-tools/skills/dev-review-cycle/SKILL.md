@@ -84,7 +84,7 @@ If already on a non-base branch, skip this step.
 
 ### Step 1: Create PR
 
-Use the Skill tool directly to invoke `commit-commands:commit-push-pr`. Extract the PR number and URL from the result.
+Use the Skill tool directly to invoke `commit-commands:commit-push-pr`. Extract the PR number and URL from the skill's output.
 
 ```
 Skill tool parameters:
@@ -93,7 +93,7 @@ Skill tool parameters:
 
 If the skill reports failure, stop the workflow and report the error.
 
-After PR creation, immediately proceed to Step 2.
+**Do NOT pause or ask the user after PR creation.** The PR number and URL are available in the skill output — extract them and immediately proceed to Step 2. There is no confirmation needed here; the PR is a draft artifact that will be reviewed in subsequent steps.
 
 ### Step 2: Collect Reviews
 
@@ -208,20 +208,23 @@ Analyze all collected reviews together:
 
 **STOP here and ask the user for confirmation.** The user may approve all, reject some, change scope classifications, or request modifications. Proceed to Step 4 only after user approval.
 
-#### 3-1: Record Out-of-Scope Items in plan.md
+#### 3-1: Record Out-of-Scope Items in tasks.md
 
 After user confirmation, if any suggestions were classified as out-of-scope (either by the initial classification or by user decision):
 
-1. Read the existing `plan.md` in the project root. If it does not exist, create one.
-2. Append a new section under `## Review Backlog` with the following format:
+1. Read the existing `tasks.md` in the project root. If it does not exist, create one.
+2. Append items under a `## Review Backlog` section with the following format. Classify each item using harness tags (`[doc]`, `[constraint]`, `[debt]`, `[harness]`) based on its nature:
 
 ```markdown
 ## Review Backlog
 
 ### PR #<PR_NUMBER> — <PR title> (<date>)
 
-- [ ] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+- [ ] [doc] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
 ```
+
+Tag guide: `[debt]` for code quality / refactoring, `[doc]` for documentation gaps, `[constraint]` for missing tests or architectural rules, `[harness]` for tooling or CI improvements.
 
 3. Each out-of-scope suggestion becomes a `- [ ]` item so it can be tracked and addressed in a future cycle.
 4. If a `## Review Backlog` section already exists, append the new PR's items under it — do not overwrite previous entries.
