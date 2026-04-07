@@ -9,6 +9,22 @@ Manages dependabot PRs across all repos owned by the authenticated GitHub user i
 
 If PRs exist in multiple repos, process each repo **in parallel using subagents**.
 
+## Subagent Model Selection
+
+Most tasks here are structured CLI execution + simple classification — expensive models are overkill. Use the `model` parameter when spawning subagents:
+
+| Task | Model | Rationale |
+|------|-------|-----------|
+| Phase 2 triage (config audit + PR status) | `haiku` | Pattern matching on gh CLI output |
+| Batch merge (gh pr merge) | `haiku` | Repetitive command execution |
+| `@dependabot rebase` comments | `haiku` | Single-command execution |
+| CI wait + merge (polling loop) | `haiku` | Simple polling + conditional merge |
+| CI failure analysis (log reading) | `sonnet` | Requires reading logs and reasoning about root cause |
+| Config fix PR creation (clone + edit + push) | `sonnet` | File editing + multi-step git workflow |
+| PR consolidation / major bump handling | `sonnet` | Multi-step workflow with judgment calls |
+
+Reserve `opus` (default, no model param) only for tasks requiring complex architectural reasoning — most dependabot tasks don't.
+
 ## Phase 1: Discovery
 
 ```bash
