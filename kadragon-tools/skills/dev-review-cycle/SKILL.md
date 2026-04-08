@@ -18,64 +18,17 @@ Post-development workflow that creates a PR, collects reviews from multiple sour
 
 ## Setup: Pre-flight Checks and Repository Metadata
 
-Before starting, verify tool availability and detect dynamic values needed throughout the workflow.
-
-### Pre-flight Checks
-
-Parse the skill arguments to detect `--no-hub`. Set `NO_HUB=true` if the flag is present, `NO_HUB=false` otherwise.
+Run the bundled preflight script to detect available tools and repository metadata in one step. The script outputs JSON with all values needed throughout the workflow.
 
 ```bash
-# GitHub auth is only required when --no-hub is NOT set
-if [ "$NO_HUB" = "false" ]; then
-  gh auth status >/dev/null 2>&1 || { echo "ERROR: gh CLI not authenticated. Run 'gh auth login' first."; exit 1; }
-fi
-
-# Detect optional tools
-GEMINI_AVAILABLE=false
-command -v gemini >/dev/null 2>&1 && GEMINI_AVAILABLE=true
-
-CODEX_AVAILABLE=false
-CODEX_MODE=""
-CODEX_COMPANION=$(find ~/.claude/plugins -name "codex-companion.mjs" -path "*/codex/*" 2>/dev/null | head -1)
-if [ -n "$CODEX_COMPANION" ] && command -v codex >/dev/null 2>&1; then
-  CODEX_AVAILABLE=true
-  CODEX_MODE="plugin"
-elif command -v codex >/dev/null 2>&1; then
-  CODEX_AVAILABLE=true
-  CODEX_MODE="cli"
-fi
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/preflight.sh [--no-hub]
 ```
 
-If `gh auth status` fails (and `--no-hub` is not set), stop the workflow and report the error.
+The script detects: `gh` auth status, Gemini CLI, Codex (plugin or CLI mode), current branch, base branch, owner/repo, and merge strategy. In `--no-hub` mode it skips all remote/GitHub checks and detects the base branch purely from local state.
 
-### Repository Metadata
+If `has_errors` is `true` in the output, stop the workflow and report the errors to the user.
 
-```bash
-FEATURE_BRANCH=$(git branch --show-current)
-
-if [ "$NO_HUB" = "false" ]; then
-  OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-  BASE_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-else
-  # Detect base branch locally (common defaults)
-  BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-  [ -z "$BASE_BRANCH" ] && BASE_BRANCH="main"
-fi
-```
-
-Use these values in all subsequent steps instead of hardcoding.
-
-### Merge Strategy Detection
-
-Skip this step when `--no-hub` is set — merge strategy is not needed.
-
-When `--no-hub` is NOT set, detect the repository's allowed merge strategies before they are needed in Step 6:
-
-```bash
-gh api repos/${OWNER_REPO} --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
-```
-
-Store the result. Prefer squash > merge > rebase, in that order of availability.
+Use the returned JSON values (`no_hub`, `feature_branch`, `base_branch`, `owner_repo`, `gemini_available`, `codex_available`, `codex_mode`, `codex_companion_path`, `merge_strategy`) in all subsequent steps instead of hardcoding. Prefer squash > merge > rebase for merge strategy, in that order of availability.
 
 ## CRITICAL: Execution Model
 
@@ -132,111 +85,59 @@ Collect reviews from up to three sources. Launch all available sources in parall
 
 #### 2-1: Claude Code Review
 
-Launch a subagent via the Agent tool to perform the review. When `--no-hub` is set, review the local diff instead of a PR.
-
-**When `--no-hub` is NOT set:**
-
-```
-Agent tool parameters:
-  subagent_type: "pr-review-toolkit:code-reviewer"
-  description: "PR review for #<PR_NUMBER>"
-  prompt: "Review PR #<PR_NUMBER> in this repository. Run git diff against the base branch to identify all changed files. Review for bugs, logic errors, security vulnerabilities, code quality issues, and adherence to project conventions (check CLAUDE.md / AGENTS.md). Return a structured report with: Critical Issues, Important Issues, Suggestions, and Strengths. Include file:line references for each finding."
-  run_in_background: true
-```
-
-**When `--no-hub` is set:**
+Launch a subagent via the Agent tool. The diff target depends on mode:
+- `--no-hub`: `git diff ${BASE_BRANCH}...HEAD`
+- otherwise: `git diff` against the PR's base branch
 
 ```
 Agent tool parameters:
   subagent_type: "pr-review-toolkit:code-reviewer"
-  description: "Local diff review against ${BASE_BRANCH}"
-  prompt: "Review the local changes on branch ${FEATURE_BRANCH} against ${BASE_BRANCH}. Run git diff ${BASE_BRANCH}...HEAD to identify all changed files. Review for bugs, logic errors, security vulnerabilities, code quality issues, and adherence to project conventions (check CLAUDE.md / AGENTS.md). Return a structured report with: Critical Issues, Important Issues, Suggestions, and Strengths. Include file:line references for each finding."
+  description: "Code review against ${BASE_BRANCH}"
+  prompt: |
+    Review the changes on branch ${FEATURE_BRANCH} against ${BASE_BRANCH}.
+    Run git diff ${BASE_BRANCH}...HEAD to identify all changed files.
+    Check CLAUDE.md / AGENTS.md for project conventions.
+
+    Only flag issues introduced by this change. Tag each finding:
+    - [P0] Blocking — data loss, security hole, crash
+    - [P1] Urgent — incorrect behavior under normal conditions
+    - [P2] Normal — edge case bugs, performance, maintainability
+    - [P3] Low — minor improvements
+
+    For each finding: priority tag + title, file:line, why, when it manifests, suggested fix.
+    End with overall verdict: "LGTM" or "Changes Requested".
   run_in_background: true
 ```
-
-**Timeout:** When collecting the result, allow up to 10 minutes (600000ms).
 
 #### 2-2: Gemini CLI Review
 
-Skip this step if `GEMINI_AVAILABLE` is false from pre-flight checks.
+Skip if `gemini_available` is false from pre-flight. Launch in background:
 
 ```bash
 # run_in_background: true, timeout: 600000
-gemini -p "$(cat <<REVIEW_PROMPT
-You are reviewing a proposed code change. Examine the diff of the current branch against ${BASE_BRANCH}.
-
-## What to flag
-
-Only flag issues introduced by this change — not pre-existing problems. Each finding must be:
-- A concrete bug, security vulnerability, or performance regression with a clear reproduction scenario
-- Discrete and actionable (one issue per finding, not vague observations)
-- Something the author would fix if made aware of it
-
-Prefer no finding over a weak finding. Do not pad the review with style nits, praise, or generic advice.
-
-## Priority levels
-
-Tag each finding:
-- [P0] Blocking — data loss, security hole, crash in production
-- [P1] Urgent — incorrect behavior under normal conditions
-- [P2] Normal — edge case bugs, performance issues, maintainability risks
-- [P3] Low — minor improvements worth noting
-
-## Comment format
-
-For each finding, provide:
-1. **Priority tag and title** (one line, imperative mood)
-2. **file:line** reference
-3. **Why** it is a problem (1 paragraph max, matter-of-fact tone)
-4. **When** it manifests (specific inputs, environments, or conditions)
-5. **Suggested fix** (concrete code snippet if applicable, 3 lines max)
-
-## Output structure
-
-List findings ordered by priority (P0 first). After all findings, add:
-- **Overall verdict**: "LGTM" if no P0/P1 issues, or "Changes Requested" with a 1-sentence explanation.
-- If no issues worth flagging exist, say so plainly — do not invent findings.
-REVIEW_PROMPT
-)" --yolo
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/gemini-review.sh ${BASE_BRANCH}
 ```
 
 If the command fails, proceed without this review.
 
 #### 2-3: Codex Review
 
-Skip this step if `CODEX_AVAILABLE` is false from pre-flight checks.
+Skip if `codex_available` is false from pre-flight. Launch in background:
 
-Choose the review command based on `CODEX_MODE` detected in pre-flight:
-
-- **`plugin`** — Uses the `codex-companion.mjs` from the [openai-codex marketplace plugin](https://github.com/openai/codex-plugin-cc). Preferred when available as it provides richer review output.
-  ```bash
-  # run_in_background: true, timeout: 600000
-  node "$CODEX_COMPANION" review --base ${BASE_BRANCH}
-  ```
-
-- **`cli`** — Falls back to the standalone Codex CLI.
-  ```bash
-  # run_in_background: true, timeout: 600000
-  codex review --base ${BASE_BRANCH}
-  ```
+```bash
+# run_in_background: true, timeout: 600000
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/codex-review.sh ${CODEX_MODE} ${BASE_BRANCH} ${CODEX_COMPANION_PATH}
+```
 
 If the command fails, proceed without this review.
 
 #### Collecting Results
 
-After launching all sources in parallel, collect results. Allow these timeouts:
-
-- **Claude Code review agent:** 600000ms (10 minutes)
-- **Gemini CLI:** 600000ms (10 minutes)
-- **Codex CLI:** 600000ms (10 minutes)
-
-After all available reviews are collected, immediately proceed to Step 3.
+Launch all available sources in parallel. Allow up to 10 minutes (600000ms) per source. After all reviews are collected, immediately proceed to Step 3.
 
 ### Step 3: Consolidate Reviews and Get User Approval
 
-**IMPORTANT: All user-facing output in this step MUST be written in Korean.** Table headers, category names, recommendations, and explanations — everything presented to the user should be in Korean.
-
-Analyze all collected reviews together:
+Analyze all collected reviews together. All three reviewers use the same P0–P3 priority scheme, so deduplication is straightforward.
 
 1. **Deduplicate** — Merge identical issues flagged by multiple reviewers into a single entry, listing all sources (e.g., "Claude, Codex").
 2. **Resolve conflicts** — When reviewers disagree, prefer the suggestion aligned with project conventions (CLAUDE.md / AGENTS.md). If conventions are silent, prefer the more conservative option and note the disagreement.
@@ -258,6 +159,7 @@ After user confirmation, if any suggestions were classified as out-of-scope (eit
 1. Read the existing `tasks.md` in the project root. If it does not exist, create one.
 2. Append items under a `## Review Backlog` section with the following format. Classify each item using harness tags (`[doc]`, `[constraint]`, `[debt]`, `[harness]`) based on its nature:
 
+**When a PR exists:**
 ```markdown
 ## Review Backlog
 
@@ -265,6 +167,15 @@ After user confirmation, if any suggestions were classified as out-of-scope (eit
 
 - [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
 - [ ] [doc] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+```
+
+**When `--no-hub` (no PR):**
+```markdown
+## Review Backlog
+
+### <FEATURE_BRANCH> — <commit summary> (<date>)
+
+- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
 ```
 
 Tag guide: `[debt]` for code quality / refactoring, `[doc]` for documentation gaps, `[constraint]` for missing tests or architectural rules, `[harness]` for tooling or CI improvements.
@@ -278,7 +189,9 @@ If no actionable in-scope suggestions exist, report that reviews found no in-sco
 
 Apply accepted improvements to the codebase. Run tests after changes to verify nothing is broken.
 
-After improvements are applied, immediately proceed to Step 5.
+If tests fail after applying improvements, revert the broken change (`git checkout -- <files>`), report which suggestion caused the failure, and ask the user whether to skip it or attempt a different approach. Do not proceed to Step 5 with failing tests.
+
+After improvements are applied and tests pass, immediately proceed to Step 5.
 
 ### Step 5: Commit (and Push unless `--no-hub`)
 
@@ -314,53 +227,33 @@ gh pr checks <PR_NUMBER> --watch --fail-fast
 
 If CI fails:
 
-1. Identify the failed workflow run ID from `gh pr checks`:
+1. Fetch failure logs using the bundled script:
    ```bash
-   gh pr checks <PR_NUMBER> --json name,state,link --jq '.[] | select(.state == "FAILURE")'
+   bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/ci-failure-logs.sh <PR_NUMBER>
    ```
-2. Fetch the CI logs for the failed job(s). Extract the run ID from the check link URL (the numeric segment after `/runs/`):
-   ```bash
-   gh run view <RUN_ID> --log-failed
-   ```
-3. Analyze the failure cause and classify the fix:
+   The script identifies failed checks, extracts run IDs, and returns JSON with logs for each failure.
+
+2. Analyze the failure cause and classify the fix:
    - **Trivial fix** (lint, type error, formatting, flaky test retry): Apply the fix directly.
    - **Logic change** (behavioral modification, new/changed code paths): Apply the fix, then re-run Step 2–3 (collect reviews and get user approval) before pushing.
-4. Run tests locally to verify the fix.
-5. Stage, commit (referencing the PR number), and push.
-6. Return to **6-1** to wait for CI again.
+3. Run tests locally to verify the fix.
+4. Stage, commit (referencing the PR number), and push.
+5. Return to **6-1** to wait for CI again.
 
 **Hard stop:** If CI fails 3 consecutive times, stop the workflow and ask the user for guidance.
 
-#### 6-3: Merge PR
+#### 6-3: Merge PR and Clean Up
 
-After CI passes, merge the PR using the preferred strategy detected in Setup:
-
-```bash
-# Use the first available strategy: squash > merge > rebase
-gh pr merge <PR_NUMBER> --squash --delete-branch
-```
-
-If squash is not allowed, use `--merge`. If neither squash nor merge is allowed, use `--rebase`. The `--delete-branch` flag deletes the remote branch; if the repo is already configured to auto-delete branches on merge, this is harmless.
-
-#### 6-4: Clean Local Branch
-
-After merge, switch to the base branch and clean up:
+After CI passes, merge the PR and clean up the local branch in one step:
 
 ```bash
-git checkout ${BASE_BRANCH}
-git pull origin ${BASE_BRANCH}
-git branch -d ${FEATURE_BRANCH}
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/merge-and-cleanup.sh \
+  <PR_NUMBER> ${BASE_BRANCH} ${FEATURE_BRANCH} '${MERGE_STRATEGY_JSON}' [worktree_path]
 ```
 
-Use `-d` (not `-D`) to ensure the branch is fully merged before deletion. If `-d` fails, report the warning but do not force-delete.
+The script selects the best merge strategy (squash > merge > rebase) from pre-flight data, merges with `--delete-branch`, then checks out the base branch, pulls, and safely deletes the local feature branch (`-d`, not `-D`). If a worktree path is provided, it removes that too.
 
-If the workflow was executed from a git worktree, remove the worktree as well:
-
-```bash
-git worktree remove <WORKTREE_PATH>
-```
-
-If the worktree removal fails (e.g., untracked files), report the warning and suggest the user clean up manually.
+If `merge_ok` is false in the output, report the error (e.g., merge conflicts, branch protection) and suggest the user resolve manually. If cleanup warnings appear, report them but don't block.
 
 ## Re-running the Cycle
 
@@ -375,7 +268,7 @@ When `--no-hub` is set, re-running simply means committing new changes locally a
 
 ## Error Handling
 
-- **Pre-flight fails (gh not authenticated):** Stop the workflow. Report the error and suggest running `gh auth login`.
+- **Pre-flight fails (`has_errors: true`):** Stop the workflow. Report the errors from the preflight script output (e.g., suggest running `gh auth login` if `gh` is not authenticated).
 - **Step 1 fails:** Stop the workflow and report the error.
 - **Gemini CLI not available or fails:** Inform the user and proceed with available reviews.
 - **Codex plugin not available or fails:** Inform the user and proceed with available reviews.
@@ -383,6 +276,4 @@ When `--no-hub` is set, re-running simply means committing new changes locally a
 - **Push fails (Step 5):** Report the error and suggest the user resolve it manually.
 - **CI fails 3 times (Step 6):** Stop the workflow and ask the user for guidance.
 - **CI fix requires logic change (Step 6-2):** Re-run Steps 2–3 for review before pushing.
-- **Merge fails (Step 6):** Report the error (e.g., merge conflicts, branch protection). Suggest the user resolve it manually.
-- **Local branch delete fails (Step 6):** Report a warning but do not force-delete. The user can clean up later.
-- **Worktree removal fails (Step 6):** Report a warning with the worktree path. The user can clean up manually.
+- **Merge or cleanup fails (Step 6):** The merge-and-cleanup script returns JSON with `merge_ok` and warning messages. Report errors/warnings to the user. Do not force-delete branches.
