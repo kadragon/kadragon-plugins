@@ -1,15 +1,20 @@
 ---
 name: dev-review-cycle
-description: Post-development workflow that creates a PR, collects reviews from multiple sources (Claude Code, Gemini, Codex), consolidates feedback, applies improvements, waits for CI, and merges — all in one continuous flow. Use when the user wants to review and merge completed work, run a full PR cycle, or says "review cycle".
+description: Post-development workflow that creates a PR, collects reviews from multiple sources (Claude Code, Gemini, Codex), consolidates feedback, applies improvements, waits for CI, and merges — all in one continuous flow. Use when the user wants to review and merge completed work, run a full PR cycle, or says "review cycle". Supports --no-hub flag to skip all GitHub operations (push, PR, CI, merge) for local-only review.
 ---
 
 # Dev Review Cycle
 
 Post-development workflow that creates a PR, collects reviews from multiple sources, consolidates feedback, and applies improvements — all in one continuous flow.
 
+## Arguments
+
+- `--no-hub` — Skip all GitHub operations: no push, no PR creation, no CI wait, no merge. The workflow commits locally and collects reviews based on the local diff against the base branch. Useful when you want code review feedback without publishing to GitHub.
+
 ## Prerequisites
 
 - Initial development must be complete with all changes ready to commit.
+- When using `--no-hub`, `gh` CLI authentication is not required.
 
 ## Setup: Pre-flight Checks and Repository Metadata
 
@@ -17,9 +22,13 @@ Before starting, verify tool availability and detect dynamic values needed throu
 
 ### Pre-flight Checks
 
+Parse the skill arguments to detect `--no-hub`. Set `NO_HUB=true` if the flag is present, `NO_HUB=false` otherwise.
+
 ```bash
-# Verify gh CLI is authenticated (required)
-gh auth status >/dev/null 2>&1 || { echo "ERROR: gh CLI not authenticated. Run 'gh auth login' first."; exit 1; }
+# GitHub auth is only required when --no-hub is NOT set
+if [ "$NO_HUB" = "false" ]; then
+  gh auth status >/dev/null 2>&1 || { echo "ERROR: gh CLI not authenticated. Run 'gh auth login' first."; exit 1; }
+fi
 
 # Detect optional tools
 GEMINI_AVAILABLE=false
@@ -37,21 +46,30 @@ elif command -v codex >/dev/null 2>&1; then
 fi
 ```
 
-If `gh auth status` fails, stop the workflow and report the error.
+If `gh auth status` fails (and `--no-hub` is not set), stop the workflow and report the error.
 
 ### Repository Metadata
 
 ```bash
-OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-BASE_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
 FEATURE_BRANCH=$(git branch --show-current)
+
+if [ "$NO_HUB" = "false" ]; then
+  OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+  BASE_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+else
+  # Detect base branch locally (common defaults)
+  BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+  [ -z "$BASE_BRANCH" ] && BASE_BRANCH="main"
+fi
 ```
 
 Use these values in all subsequent steps instead of hardcoding.
 
 ### Merge Strategy Detection
 
-Detect the repository's allowed merge strategies before they are needed in Step 6:
+Skip this step when `--no-hub` is set — merge strategy is not needed.
+
+When `--no-hub` is NOT set, detect the repository's allowed merge strategies before they are needed in Step 6:
 
 ```bash
 gh api repos/${OWNER_REPO} --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
@@ -82,7 +100,20 @@ Generate the branch name autonomously based on the staged/unstaged changes:
 
 If already on a non-base branch, skip this step.
 
-### Step 1: Create PR
+### Step 1: Commit (and Create PR unless `--no-hub`)
+
+**When `--no-hub` is set:**
+
+Use the Skill tool to invoke `commit-commands:commit` to commit changes locally. No push, no PR.
+
+```
+Skill tool parameters:
+  skill: "commit-commands:commit"
+```
+
+Immediately proceed to Step 2 after committing.
+
+**When `--no-hub` is NOT set:**
 
 Use the Skill tool directly to invoke `commit-commands:commit-push-pr`. Extract the PR number and URL from the skill's output.
 
@@ -99,15 +130,27 @@ If the skill reports failure, stop the workflow and report the error.
 
 Collect reviews from up to three sources. Launch all available sources in parallel using background tasks.
 
-#### 2-1: Claude Code PR Review
+#### 2-1: Claude Code Review
 
-Launch a subagent via the Agent tool to perform the PR review.
+Launch a subagent via the Agent tool to perform the review. When `--no-hub` is set, review the local diff instead of a PR.
+
+**When `--no-hub` is NOT set:**
 
 ```
 Agent tool parameters:
   subagent_type: "pr-review-toolkit:code-reviewer"
   description: "PR review for #<PR_NUMBER>"
   prompt: "Review PR #<PR_NUMBER> in this repository. Run git diff against the base branch to identify all changed files. Review for bugs, logic errors, security vulnerabilities, code quality issues, and adherence to project conventions (check CLAUDE.md / AGENTS.md). Return a structured report with: Critical Issues, Important Issues, Suggestions, and Strengths. Include file:line references for each finding."
+  run_in_background: true
+```
+
+**When `--no-hub` is set:**
+
+```
+Agent tool parameters:
+  subagent_type: "pr-review-toolkit:code-reviewer"
+  description: "Local diff review against ${BASE_BRANCH}"
+  prompt: "Review the local changes on branch ${FEATURE_BRANCH} against ${BASE_BRANCH}. Run git diff ${BASE_BRANCH}...HEAD to identify all changed files. Review for bugs, logic errors, security vulnerabilities, code quality issues, and adherence to project conventions (check CLAUDE.md / AGENTS.md). Return a structured report with: Critical Issues, Important Issues, Suggestions, and Strengths. Include file:line references for each finding."
   run_in_background: true
 ```
 
@@ -237,19 +280,24 @@ Apply accepted improvements to the codebase. Run tests after changes to verify n
 
 After improvements are applied, immediately proceed to Step 5.
 
-### Step 5: Commit and Push
+### Step 5: Commit (and Push unless `--no-hub`)
 
 After all improvements are applied:
 
 1. Stage only the modified files.
-2. Create a commit following the project's commit conventions (check CLAUDE.md / AGENTS.md for the expected format). Reference the PR number in the message.
-3. Push to the same branch as the PR.
+2. Create a commit following the project's commit conventions (check CLAUDE.md / AGENTS.md for the expected format). Reference the PR number in the message (if a PR exists).
 
-The existing PR from Step 1 receives the pushed improvements. Do not create a new PR.
+**When `--no-hub` is NOT set:**
 
-After pushing, immediately proceed to Step 6.
+3. Push to the same branch as the PR. The existing PR from Step 1 receives the pushed improvements. Do not create a new PR.
+4. After pushing, immediately proceed to Step 6.
 
-### Step 6: Wait for CI and Merge
+**When `--no-hub` is set:**
+
+3. Do NOT push. The commit stays local.
+4. Skip Step 6 entirely. Report the review summary and applied improvements to the user. The workflow ends here.
+
+### Step 6: Wait for CI and Merge (skip when `--no-hub`)
 
 #### 6-1: Wait for CI
 
@@ -322,6 +370,8 @@ To run a subsequent review cycle on the same PR (e.g., after applying changes an
 2. Push the latest changes to the PR branch.
 3. Start from Step 2 with the existing PR number.
 4. Continue through Steps 3–6 as normal.
+
+When `--no-hub` is set, re-running simply means committing new changes locally and collecting fresh reviews from Step 2 onward.
 
 ## Error Handling
 
