@@ -30,7 +30,7 @@ fi
 # --- Merge PR ---
 MERGE_OK=true
 MERGE_OUTPUT=""
-if MERGE_OUTPUT=$(gh pr merge "$PR_NUMBER" $MERGE_FLAG --delete-branch 2>&1); then
+if MERGE_OUTPUT=$(gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --delete-branch 2>&1); then
   MERGE_MSG="PR #${PR_NUMBER} merged with ${MERGE_FLAG#--}"
 else
   MERGE_OK=false

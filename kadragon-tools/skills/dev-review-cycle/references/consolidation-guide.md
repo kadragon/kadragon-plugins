@@ -1,0 +1,80 @@
+# Review Consolidation Guide
+
+Detailed procedure for consolidating multi-reviewer feedback (Step 3 of dev-review-cycle).
+
+## Consolidation Procedure
+
+All three reviewers (Claude Code, Gemini, Codex) use the same P0-P3 priority scheme, making deduplication straightforward.
+
+### 1. Deduplicate
+
+Merge identical issues flagged by multiple reviewers into a single entry, listing all sources (e.g., "Claude, Codex").
+
+### 2. Resolve Conflicts
+
+When reviewers disagree, prefer the suggestion aligned with project conventions (CLAUDE.md / AGENTS.md). If conventions are silent, prefer the more conservative option and note the disagreement.
+
+### 3. Categorize
+
+Categorize each remaining suggestion: bug fix, performance, readability, style, architecture.
+
+### 4. Discard Convention Conflicts
+
+Remove suggestions that conflict with project conventions.
+
+### 5. Scope Classification
+
+For each remaining suggestion, determine whether it falls within the current PR's scope:
+
+- **In-scope:** Directly related to the files and logic changed in this PR.
+- **Out-of-scope:** Valid improvement but touches unrelated code, requires a separate feature branch, or is an architectural concern beyond this PR's purpose.
+
+### 6. Present to User
+
+Present the consolidated list as a table with:
+- Priority (P0-P3)
+- Title
+- Source attribution (Claude / Gemini / Codex)
+- Scope column (In / Out)
+- Recommendation (apply / skip with reason)
+
+**STOP and ask the user for confirmation.** The user may approve all, reject some, change scope classifications, or request modifications.
+
+## Recording Out-of-Scope Items in tasks.md
+
+After user confirmation, if any suggestions were classified as out-of-scope:
+
+1. Read the existing `tasks.md` in the project root. If it does not exist, create one.
+2. Append items under a `## Review Backlog` section. Classify each item using harness tags based on its nature.
+
+### Format When a PR Exists
+
+```markdown
+## Review Backlog
+
+### PR #<PR_NUMBER> — <PR title> (<date>)
+
+- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+- [ ] [doc] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+```
+
+### Format When `--no-hub` (No PR)
+
+```markdown
+## Review Backlog
+
+### <FEATURE_BRANCH> — <commit summary> (<date>)
+
+- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
+```
+
+### Tag Guide
+
+| Tag | Use for |
+|-----|---------|
+| `[debt]` | Code quality, refactoring |
+| `[doc]` | Documentation gaps |
+| `[constraint]` | Missing tests or architectural rules |
+| `[harness]` | Tooling or CI improvements |
+
+Each out-of-scope suggestion becomes a `- [ ]` item for tracking in a future cycle. If a `## Review Backlog` section already exists, append the new PR's items — do not overwrite previous entries.

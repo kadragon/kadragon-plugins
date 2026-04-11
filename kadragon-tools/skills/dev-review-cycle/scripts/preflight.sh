@@ -37,7 +37,8 @@ command -v gemini >/dev/null 2>&1 && GEMINI_AVAILABLE=true
 CODEX_AVAILABLE=false
 CODEX_MODE="none"
 CODEX_COMPANION_PATH=""
-CODEX_COMPANION=$(find ~/.claude/plugins -name "codex-companion.mjs" -path "*/codex/*" 2>/dev/null | head -1 || true)
+# Use glob instead of find for predictable plugin structure
+CODEX_COMPANION=$(ls ~/.claude/plugins/*/codex/*/codex-companion.mjs ~/.claude/plugins/cache/*/codex/*/codex-companion.mjs 2>/dev/null | head -1 || true)
 if [ -n "$CODEX_COMPANION" ] && command -v codex >/dev/null 2>&1; then
   CODEX_AVAILABLE=true
   CODEX_MODE="plugin"

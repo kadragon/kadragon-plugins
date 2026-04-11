@@ -8,6 +8,7 @@ set -euo pipefail
 
 BASE_BRANCH="${1:?Usage: gemini-review.sh <base_branch>}"
 
+# --yolo: skip interactive confirmation prompts in Gemini CLI
 NO_COLOR=1 TERM=dumb gemini -o text -p "$(cat <<REVIEW_PROMPT
 You are reviewing a proposed code change. Examine the diff of the current branch against ${BASE_BRANCH}.
 

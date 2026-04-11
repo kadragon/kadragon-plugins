@@ -30,7 +30,8 @@ while IFS= read -r check; do
 
   LOGS=""
   if [ -n "$RUN_ID" ]; then
-    LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 || echo "Failed to fetch logs for run $RUN_ID")
+    # Limit to last 200 lines per job to avoid context/memory overflow
+    LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | tail -200 || echo "Failed to fetch logs for run $RUN_ID")
   else
     LOGS="Could not extract run ID from link: $LINK"
   fi

@@ -1,6 +1,6 @@
 ---
 name: dev-review-cycle
-description: Post-development workflow that creates a PR, collects reviews from multiple sources (Claude Code, Gemini, Codex), consolidates feedback, applies improvements, waits for CI, and merges — all in one continuous flow. Use when the user wants to review and merge completed work, run a full PR cycle, or says "review cycle". Supports --no-hub flag to skip all GitHub operations (push, PR, CI, merge) for local-only review.
+description: Post-development workflow that creates a PR, collects reviews from multiple sources (Claude Code, Gemini, Codex), consolidates feedback, applies improvements, waits for CI, and merges — all in one continuous flow. This skill should be used when the user asks to "review cycle", "run review", "review and merge", "PR review", "dev review", "리뷰 돌려줘", "리뷰 사이클", "리뷰 머지", or wants to review and merge completed work. Supports --no-hub flag to skip all GitHub operations for local-only review.
 ---
 
 # Dev Review Cycle
@@ -137,51 +137,11 @@ Launch all available sources in parallel. Allow up to 10 minutes (600000ms) per 
 
 ### Step 3: Consolidate Reviews and Get User Approval
 
-Analyze all collected reviews together. All three reviewers use the same P0–P3 priority scheme, so deduplication is straightforward.
+Deduplicate, resolve conflicts, classify scope (in/out), and present a consolidated table to the user. Follow the detailed procedure in **`references/consolidation-guide.md`**.
 
-1. **Deduplicate** — Merge identical issues flagged by multiple reviewers into a single entry, listing all sources (e.g., "Claude, Codex").
-2. **Resolve conflicts** — When reviewers disagree, prefer the suggestion aligned with project conventions (CLAUDE.md / AGENTS.md). If conventions are silent, prefer the more conservative option and note the disagreement.
-3. Consolidate remaining suggestions into a single prioritized list.
-4. Categorize each suggestion: bug fix, performance, readability, style, architecture.
-5. Discard suggestions that conflict with project conventions.
-6. **Scope classification** — For each remaining suggestion, determine whether it falls within the current PR's scope:
-   - **In-scope:** Directly related to the files and logic changed in this PR.
-   - **Out-of-scope:** Valid improvement but touches unrelated code, requires a separate feature branch, or is an architectural concern beyond this PR's purpose.
-7. Present the consolidated list as a table with source attribution (Claude / Gemini / Codex). Include a "Scope" column (In / Out) so the user can see the classification at a glance.
-8. Clearly note which suggestions are recommended to apply and which are recommended to skip (with reasons).
+**STOP here and ask the user for confirmation.** Proceed to Step 4 only after user approval.
 
-**STOP here and ask the user for confirmation.** The user may approve all, reject some, change scope classifications, or request modifications. Proceed to Step 4 only after user approval.
-
-#### 3-1: Record Out-of-Scope Items in tasks.md
-
-After user confirmation, if any suggestions were classified as out-of-scope (either by the initial classification or by user decision):
-
-1. Read the existing `tasks.md` in the project root. If it does not exist, create one.
-2. Append items under a `## Review Backlog` section with the following format. Classify each item using harness tags (`[doc]`, `[constraint]`, `[debt]`, `[harness]`) based on its nature:
-
-**When a PR exists:**
-```markdown
-## Review Backlog
-
-### PR #<PR_NUMBER> — <PR title> (<date>)
-
-- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
-- [ ] [doc] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
-```
-
-**When `--no-hub` (no PR):**
-```markdown
-## Review Backlog
-
-### <FEATURE_BRANCH> — <commit summary> (<date>)
-
-- [ ] [debt] <suggestion summary> (source: <reviewer>) — <file:line if applicable>
-```
-
-Tag guide: `[debt]` for code quality / refactoring, `[doc]` for documentation gaps, `[constraint]` for missing tests or architectural rules, `[harness]` for tooling or CI improvements.
-
-3. Each out-of-scope suggestion becomes a `- [ ]` item so it can be tracked and addressed in a future cycle.
-4. If a `## Review Backlog` section already exists, append the new PR's items under it — do not overwrite previous entries.
+After confirmation, record any out-of-scope items in `tasks.md` per the format in `references/consolidation-guide.md`.
 
 If no actionable in-scope suggestions exist, report that reviews found no in-scope issues and skip directly to Step 6.
 
@@ -212,48 +172,13 @@ After all improvements are applied:
 
 ### Step 6: Wait for CI and Merge (skip when `--no-hub`)
 
-#### 6-1: Wait for CI
+Follow the detailed procedure in **`references/ci-failure-handling.md`** for CI wait, failure triage, and merge/cleanup.
 
-Poll the CI status for the PR using `--watch`:
+Summary:
 
-```bash
-# timeout: 900000
-gh pr checks <PR_NUMBER> --watch --fail-fast
-```
-
-**Timeout:** Allow up to 15 minutes (900000ms).
-
-#### 6-2: Handle CI Failure
-
-If CI fails:
-
-1. Fetch failure logs using the bundled script:
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/ci-failure-logs.sh <PR_NUMBER>
-   ```
-   The script identifies failed checks, extracts run IDs, and returns JSON with logs for each failure.
-
-2. Analyze the failure cause and classify the fix:
-   - **Trivial fix** (lint, type error, formatting, flaky test retry): Apply the fix directly.
-   - **Logic change** (behavioral modification, new/changed code paths): Apply the fix, then re-run Step 2–3 (collect reviews and get user approval) before pushing.
-3. Run tests locally to verify the fix.
-4. Stage, commit (referencing the PR number), and push.
-5. Return to **6-1** to wait for CI again.
-
-**Hard stop:** If CI fails 3 consecutive times, stop the workflow and ask the user for guidance.
-
-#### 6-3: Merge PR and Clean Up
-
-After CI passes, merge the PR and clean up the local branch in one step:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/dev-review-cycle/scripts/merge-and-cleanup.sh \
-  <PR_NUMBER> ${BASE_BRANCH} ${FEATURE_BRANCH} '${MERGE_STRATEGY_JSON}' [worktree_path]
-```
-
-The script selects the best merge strategy (squash > merge > rebase) from pre-flight data, merges with `--delete-branch`, then checks out the base branch, pulls, and safely deletes the local feature branch (`-d`, not `-D`). If a worktree path is provided, it removes that too.
-
-If `merge_ok` is false in the output, report the error (e.g., merge conflicts, branch protection) and suggest the user resolve manually. If cleanup warnings appear, report them but don't block.
+1. **Wait for CI** — `gh pr checks <PR_NUMBER> --watch --fail-fast` (timeout 15 min).
+2. **On failure** — Fetch logs via `scripts/ci-failure-logs.sh`, classify fix (trivial → apply directly; logic change → re-run Steps 2-3). Hard stop after 3 consecutive failures.
+3. **Merge and clean up** — Run `scripts/merge-and-cleanup.sh` with pre-flight merge strategy. Report errors if `merge_ok` is false.
 
 ## Re-running the Cycle
 
@@ -268,12 +193,29 @@ When `--no-hub` is set, re-running simply means committing new changes locally a
 
 ## Error Handling
 
-- **Pre-flight fails (`has_errors: true`):** Stop the workflow. Report the errors from the preflight script output (e.g., suggest running `gh auth login` if `gh` is not authenticated).
-- **Step 1 fails:** Stop the workflow and report the error.
-- **Gemini CLI not available or fails:** Inform the user and proceed with available reviews.
-- **Codex plugin not available or fails:** Inform the user and proceed with available reviews.
-- **No actionable suggestions from reviews:** Report that reviews found no issues. Skip Steps 4–5 and proceed directly to Step 6 (CI wait and merge).
-- **Push fails (Step 5):** Report the error and suggest the user resolve it manually.
-- **CI fails 3 times (Step 6):** Stop the workflow and ask the user for guidance.
-- **CI fix requires logic change (Step 6-2):** Re-run Steps 2–3 for review before pushing.
-- **Merge or cleanup fails (Step 6):** The merge-and-cleanup script returns JSON with `merge_ok` and warning messages. Report errors/warnings to the user. Do not force-delete branches.
+| Failure | Action |
+|---------|--------|
+| Pre-flight `has_errors: true` | Stop. Report errors (e.g., suggest `gh auth login`). |
+| Step 1 (commit/PR) fails | Stop. Report the error. |
+| Gemini/Codex unavailable or fails | Inform user, proceed with available reviews. |
+| No actionable suggestions | Report no issues. Skip Steps 4-5, proceed to Step 6. |
+| Push fails (Step 5) | Report error. Suggest manual resolution. |
+| CI fails 3 times | Stop. Ask user for guidance. |
+| CI fix requires logic change | Re-run Steps 2-3 before pushing. |
+| Merge/cleanup fails | Report `merge_ok` / warnings. Do not force-delete. |
+
+## Additional Resources
+
+### Reference Files
+
+For detailed procedures, consult:
+- **`references/consolidation-guide.md`** — Review deduplication, conflict resolution, scope classification, and tasks.md recording format
+- **`references/ci-failure-handling.md`** — CI wait, failure triage, merge, and cleanup procedure
+
+### Scripts
+
+- **`scripts/preflight.sh`** — Pre-flight checks, outputs JSON with tool availability and repo metadata
+- **`scripts/gemini-review.sh`** — Gemini CLI review launcher
+- **`scripts/codex-review.sh`** — Codex review launcher (plugin or CLI mode)
+- **`scripts/ci-failure-logs.sh`** — Fetches failed CI check logs as JSON
+- **`scripts/merge-and-cleanup.sh`** — Merges PR and cleans up local/remote branches
