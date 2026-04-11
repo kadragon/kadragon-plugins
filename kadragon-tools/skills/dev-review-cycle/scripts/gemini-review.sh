@@ -8,7 +8,7 @@ set -euo pipefail
 
 BASE_BRANCH="${1:?Usage: gemini-review.sh <base_branch>}"
 
-NO_COLOR=1 gemini -o text -p "$(cat <<REVIEW_PROMPT
+NO_COLOR=1 TERM=dumb gemini -o text -p "$(cat <<REVIEW_PROMPT
 You are reviewing a proposed code change. Examine the diff of the current branch against ${BASE_BRANCH}.
 
 ## What to flag
