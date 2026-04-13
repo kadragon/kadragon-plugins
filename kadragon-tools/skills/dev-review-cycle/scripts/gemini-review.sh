@@ -3,13 +3,14 @@
 #
 # Usage: gemini-review.sh <base_branch>
 # Output: Gemini's review text to stdout.
+#
+# Falls back to gemini-2.5-flash automatically on capacity errors (429 / RESOURCE_EXHAUSTED).
 
 set -euo pipefail
 
 BASE_BRANCH="${1:?Usage: gemini-review.sh <base_branch>}"
 
-# --yolo: skip interactive confirmation prompts in Gemini CLI
-NO_COLOR=1 TERM=dumb gemini -o text -p "$(cat <<REVIEW_PROMPT
+REVIEW_PROMPT="$(cat <<REVIEW_PROMPT
 You are reviewing a proposed code change. Examine the diff of the current branch against ${BASE_BRANCH}.
 
 ## What to flag
@@ -44,4 +45,26 @@ List findings ordered by priority (P0 first). After all findings, add:
 - **Overall verdict**: "LGTM" if no P0/P1 issues, or "Changes Requested" with a 1-sentence explanation.
 - If no issues worth flagging exist, say so plainly — do not invent findings.
 REVIEW_PROMPT
-)" --yolo
+)"
+
+run_gemini() {
+  NO_COLOR=1 TERM=dumb gemini -m "$1" -o text -p "$REVIEW_PROMPT" --yolo
+}
+
+STDERR_FILE=$(mktemp)
+trap 'rm -f "$STDERR_FILE"' EXIT
+
+# Try with auto-gemini-3 first.
+if run_gemini "auto-gemini-3" 2>"$STDERR_FILE"; then
+  exit 0
+fi
+
+# Fall back to gemini-2.5-flash only on capacity/rate-limit errors.
+if grep -qE "429|RESOURCE_EXHAUSTED|MODEL_CAPACITY_EXHAUSTED|rateLimitExceeded" "$STDERR_FILE"; then
+  echo "auto-gemini-3 capacity exhausted — retrying with gemini-2.5-flash" >&2
+  run_gemini "gemini-2.5-flash"
+else
+  # Non-capacity failure (auth, network, etc.) — surface the error as-is.
+  cat "$STDERR_FILE" >&2
+  exit 1
+fi
