@@ -62,6 +62,7 @@ Delegate commit (and push/PR) to a **subagent** to keep the main workflow contex
 ```
 Agent tool parameters:
   description: "Commit changes locally"
+  model: "sonnet"
   prompt: |
     Commit all staged and unstaged changes in the current repository.
     1. Run `git status` and `git diff HEAD` to understand the changes.
@@ -77,6 +78,7 @@ Immediately proceed to Step 2 after the subagent returns.
 ```
 Agent tool parameters:
   description: "Commit, push, and create PR"
+  model: "sonnet"
   prompt: |
     Commit, push, and create a PR for the current changes.
     1. Run `git status`, `git diff HEAD`, and `git branch --show-current`.
@@ -104,6 +106,7 @@ Launch a subagent via the Agent tool. The diff target depends on mode:
 ```
 Agent tool parameters:
   subagent_type: "pr-review-toolkit:code-reviewer"
+  model: "opus"
   description: "Code review against ${BASE_BRANCH}"
   prompt: |
     Review the changes on branch ${FEATURE_BRANCH} against ${BASE_BRANCH}.
@@ -174,6 +177,7 @@ Delegate commit (and push) to a **subagent** to keep the main workflow context c
 ```
 Agent tool parameters:
   description: "Commit and push review improvements"
+  model: "sonnet"
   prompt: |
     Commit and push the review improvements applied to this branch.
     1. Run `git status` and `git diff HEAD` to see the changes.
@@ -191,6 +195,7 @@ After the subagent returns, immediately proceed to Step 6.
 ```
 Agent tool parameters:
   description: "Commit review improvements locally"
+  model: "sonnet"
   prompt: |
     Commit the review improvements locally (do NOT push).
     1. Run `git status` and `git diff HEAD` to see the changes.
