@@ -97,30 +97,22 @@ Extract the PR number and URL from the subagent's result. If the subagent report
 
 Collect reviews from up to three sources. Launch all available sources in parallel using background tasks.
 
-#### 2-1: Claude Code Review
+#### 2-1: Claude Code Review (review-pr)
 
-Launch a subagent via the Agent tool. The diff target depends on mode:
-- `--no-hub`: `git diff ${BASE_BRANCH}...HEAD`
-- otherwise: `git diff` against the PR's base branch
+Launch a subagent via the Agent tool that runs the `pr-review-toolkit:review-pr` skill on the changed files.
 
 ```
 Agent tool parameters:
-  subagent_type: "pr-review-toolkit:code-reviewer"
-  model: "opus"
-  description: "Code review against ${BASE_BRANCH}"
+  description: "Comprehensive PR review against ${BASE_BRANCH}"
+  model: "sonnet"
   prompt: |
-    Review the changes on branch ${FEATURE_BRANCH} against ${BASE_BRANCH}.
-    Run git diff ${BASE_BRANCH}...HEAD to identify all changed files.
-    Check CLAUDE.md / AGENTS.md for project conventions.
-
-    Only flag issues introduced by this change. Tag each finding:
-    - [P0] Blocking — data loss, security hole, crash
-    - [P1] Urgent — incorrect behavior under normal conditions
-    - [P2] Normal — edge case bugs, performance, maintainability
-    - [P3] Low — minor improvements
-
-    For each finding: priority tag + title, file:line, why, when it manifests, suggested fix.
-    End with overall verdict: "LGTM" or "Changes Requested".
+    Run a comprehensive PR review using the /pr-review-toolkit:review-pr skill on the changes
+    introduced by branch ${FEATURE_BRANCH} against ${BASE_BRANCH}.
+    1. Run `git diff ${BASE_BRANCH}...HEAD --name-only` to identify all changed files.
+    2. Invoke the Skill tool with skill="pr-review-toolkit:review-pr" to run all applicable
+       review agents (code, errors, tests, comments, types, simplify) on the diff.
+    3. Return the full aggregated review summary including Critical Issues, Important Issues,
+       Suggestions, and Strengths.
   run_in_background: true
 ```
 
