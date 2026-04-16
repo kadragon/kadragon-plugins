@@ -1,0 +1,33 @@
+# Version control
+.git/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Agent-generated artifacts
+.claude/worktrees/
+.claude/todos/
+.claude/statsig/
+.claude/shell-snapshots/
+
+# Skill runtime workspace
+kadragon-tools/skills/security-overview-workspace/
+
+# Lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+uv.lock
+
+# Logs / temp
+*.log
+tmp/
+.cache/

@@ -1,6 +1,6 @@
 ---
 name: harness-init
-version: 0.2.0
+version: 0.3.0
 description: |
   This skill should be used when the user asks to "set up a harness", "initialize agent infrastructure", "bootstrap AGENTS.md", "create agent rules", "set up Claude Code for a new repo", "하네스 초기화", "에이전트 설정", or wants to make a repository agent-ready. This skill should also be used when the user mentions wanting consistent AI-assisted development, delegation to sub-agents, automated code quality checks, or structured agent workflows for a codebase. This skill is repo-scoped — it does NOT modify global ~/.claude/CLAUDE.md.
 ---
@@ -74,7 +74,7 @@ Ask the user: "What are the rules that, if broken, cause the most pain in this c
 
 ### Step 3: Create AGENTS.md
 
-AGENTS.md is a **map, not an encyclopedia**. Target ~80-100 lines. It should fit in the agent's context window without crowding out actual work.
+AGENTS.md is a **map, not an encyclopedia**. See `references/harness-invariants.md` → "AGENTS.md Size Policy" for thresholds (target ≤100, hard warn >200). It must fit in the agent's context window without crowding out actual work.
 
 See `examples/agents-md-example.md` for a complete reference.
 
@@ -100,10 +100,20 @@ See `examples/agents-md-example.md` for a complete reference.
 
 ## Delegation
 
+## Token Economy
+
 ## Working with Existing Code
 
 ## Language Policy
+
+## Maintenance
+
+{embed the AGENTS.md Edit Policy — see below}
 ```
+
+**The `## Maintenance` section is mandatory.** Paste the 4-rule edit policy verbatim from `references/harness-invariants.md` → "AGENTS.md Edit Policy". This internalizes the `harness-sync` acceptance filter so any session applying edits to AGENTS.md follows the same rule — sync is not the only guardrail.
+
+**Token Economy is mandatory.** Include the standard 5-rule block verbatim — no re-reading files, no redundant tool calls, parallel independent calls, delegate >20-line output to sub-agents, no restating user input. These rules apply every message and are the single biggest lever for keeping the context window lean on long sessions. See `examples/agents-md-example.md` → "Token Economy" for the exact block to paste.
 
 **Context anxiety warning:** Models on lengthy tasks may prematurely wrap up work or cut corners as context fills. AGENTS.md should include a note directing the agent to prefer context resets over compaction and to write `handoff-{feature}.md` at the start of multi-session work (not when context is already degraded). See `references/workflows-template.md` → "Context Anxiety" for countermeasures.
 
@@ -131,11 +141,30 @@ Product-level evaluation criteria with the Generator-Evaluator separation princi
 #### `docs/runbook.md`
 Build, test, deploy commands. Common failure modes and fixes. Environment setup. Read `references/runbook-template.md` for the template.
 
+### Step 4b: Create Sprint / Backlog Files
+
+Required so that `harness-sync` C (reconciliation) is a no-op on first run. Without these, sync will either silently report `Backlog clear.` forever (harmless but wasteful) or warn about a missing schema.
+
+Create at the repo root:
+
+- **`backlog.md`** — queue of work not yet in flight. Copy the minimal template from `references/backlog-template.md`. Empty sections are fine.
+- **`tasks.md`** — DO NOT create at init time. This file only exists during an active sprint. Include the template path (`references/tasks-template.md`) as a reference in `docs/workflows.md` so the first sprint starter knows the schema.
+
+Both files follow the **Reconciliation Contract** documented in `references/harness-invariants.md`.
+
 ### Step 5: Set Up Sweep Automation
 
 Copy `scripts/sweep.sh` into the target project's `tools/` directory and adapt the `# ADAPT:` sections. Read `references/sweep-template.md` for ecosystem-specific adaptation guidance.
 
 The sweep script performs five checks: lint scan, doc drift, golden principle violations, harness freshness, and finding report. It also includes a periodic **load-bearing assessment** — stress-testing whether each harness component still compensates for a real model limitation. See `references/sweep-template.md` → "Load-Bearing Assessment" for the methodology.
+
+**Trigger policy is required** — sweep is deliberately NOT part of the session-start sync loop (too heavy to run on every session). Pick one and document it in `docs/runbook.md`:
+
+- **Manual** (default) — developer runs `bash tools/sweep.sh` between features
+- **SessionStart hook** — `.claude/settings.json` hook with a staleness guard (e.g., skip if `tools/.sweep-stamp` is <7 days old)
+- **Cron / CI** — weekly GitHub Actions job or `CronCreate` schedule
+
+Whichever is chosen, record it in `references/harness-invariants.md` → "Sweep Trigger Policy" so future sessions know where the cadence lives.
 
 ### Step 6: Improve Lint for Agent Readability
 
@@ -169,40 +198,80 @@ Match enforcement depth to team size and risk tolerance. Not every project needs
 
 **Performance rule for hook scripts:** Hooks fire on every edit, so avoid `echo | grep` inside loops — each call forks a subprocess. Use bash builtin `[[ =~ ]]` (available since bash 3.0) for pattern matching instead. See the "Performance" section in `references/enforcement-template.md` for migration patterns.
 
-### Step 8: Create CLAUDE.md Pointer
+**Token-economy hook worth considering:** `references/enforcement-template.md` → "Bash Output Truncation" documents a generic PostToolUse hook that tails/caps large Bash outputs (test suites, verbose builds, long `git log`). Not a golden principle but a zero-judgment win — enable for any repo that routinely runs commands with >200-line output.
 
-Create `CLAUDE.md` in the repo root with a single line:
+### Step 8: Create Repo Root Configs
+
+Three items at the repo root. All are mechanical wins — "create once, benefits every session."
+
+#### `CLAUDE.md` (pointer)
 
 ```markdown
 @AGENTS.md
 ```
 
-This keeps the loading chain clean: Claude loads `CLAUDE.md` -> `AGENTS.md` (the map) -> `docs/` (read on demand).
+Keeps the loading chain clean: Claude loads `CLAUDE.md` → `AGENTS.md` (the map) → `docs/` (read on demand). Invariant enforced by `harness-sync` B.
+
+#### `.claudeignore` (scan exclusions)
+
+Prevents Claude from scanning vendored dependencies, build outputs, and generated artifacts. Without it a single glob can pull in `node_modules/` or `target/` and burn tokens on files the agent won't usefully read.
+
+1. Detect the language set from Step 1's analysis
+2. Compose using `references/claudeignore-template.md` — combine "Common" + one or more language sections
+3. Never include source files, migration SQL, or canonical config (`package.json`, `tsconfig.json`, etc.)
+
+#### `.agents/skills` symlink
+
+Required for tooling that looks up project-local skills via the conventional `.agents/` path while the actual skill files live under `.claude/skills/`. Invariant enforced by `harness-sync` E.
+
+Create once at init time:
+
+```bash
+mkdir -p .claude/skills .agents
+ln -sfn ../.claude/skills .agents/skills
+```
+
+After init, verify with `readlink .agents/skills` → must print `../.claude/skills`.
 
 ### Step 9: Validate
 
-Run `scripts/validate-harness.sh` against the target project to verify all artifacts are complete and consistent.
+Run `scripts/validate-harness.sh` against the target project to verify all artifacts are complete and consistent. The script checks:
+
+- Required files exist (`AGENTS.md`, `CLAUDE.md`, `docs/*`, `backlog.md`)
+- AGENTS.md size is within the policy band (see `references/harness-invariants.md`)
+- `CLAUDE.md` is exactly `@AGENTS.md`
+- `.agents/skills` points to `../.claude/skills`
+- `backlog.md` schema (checkbox items under `##` headings)
+- AGENTS.md `## Maintenance` section contains the edit-policy rules
+- Golden Principles, Delegation, enforcement layers present
+
+A clean validate run means `harness-sync` on first invocation will be a no-op.
 
 Manual checklist for items the script cannot verify:
 - [ ] Golden principles are enforceable (each has a lint rule, test, or hook)
 - [ ] Delegation table specifies model per role (haiku/sonnet/opus)
 - [ ] Eval criteria are concrete and gradeable (not vague)
 - [ ] `docs/` files do not duplicate each other
+- [ ] Sweep trigger policy recorded in `docs/runbook.md`
 
 ### Step 10: Explain to the User
 
 After setup, walk the user through what was created. Key points:
 
 - AGENTS.md is the entry point — keep it short, point to docs/
-- Run sweep periodically (between features, or automate with CronCreate)
+- The `## Maintenance` section in AGENTS.md carries the edit-policy rules; apply them whenever touching AGENTS.md
+- Run sweep per the chosen trigger (manual / hook / cron)
 - Update docs/ after implementing features — stale docs are worse than no docs
 - Golden principles should evolve — add new ones when new pain points emerge, remove when model capability makes them unnecessary
+
+**Handoff to `harness-sync`:** from this point on, `harness-sync` runs silently at session start to keep the harness tidy. It maintains these exact invariants (CLAUDE.md pointer, `.agents/skills` symlink, backlog/tasks schemas, AGENTS.md size warnings). If sync ever reports unexpected drift on first run, treat it as an init bug — not a sync false positive — and fix the template here.
 
 ## Additional Resources
 
 ### Reference Files
 
 Detailed templates and guides in `references/`:
+- **`references/harness-invariants.md`** — Shared contract between `harness-init` and `harness-sync` (thresholds, file layouts, edit policy, reconciliation contract)
 - **`references/golden-principles-guide.md`** — Discovery questions, tech-stack examples, principle-to-enforcement mapping
 - **`references/architecture-template.md`** — Architecture doc structure with a concrete Next.js example
 - **`references/conventions-template.md`** — Naming, code style, framework-specific rules, API and git conventions
@@ -212,6 +281,10 @@ Detailed templates and guides in `references/`:
 - **`references/eval-criteria-template.md`** — Grading rubrics, calibration examples, evaluator execution protocol
 - **`references/enforcement-template.md`** — 4-layer enforcement chain with CI/hook/pre-commit templates
 - **`references/sweep-template.md`** — Ecosystem-specific adaptation guide for the sweep script
+- **`references/backlog-template.md`** — Minimal `backlog.md` schema (checkbox states, headings)
+- **`references/tasks-template.md`** — `tasks.md` schema for active sprints (status field, required sections)
+- **`references/claudeignore-template.md`** — `.claudeignore` patterns by language
+- **`references/power-user-settings.md`** — Optional env vars (AUTOCOMPACT threshold, extended thinking) and output-style customization — informational, not auto-applied
 
 ### Scripts
 
