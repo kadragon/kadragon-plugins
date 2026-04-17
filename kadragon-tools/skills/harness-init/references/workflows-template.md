@@ -18,6 +18,9 @@ Skip for trivial features.
 
 The primary cycle for behavioral changes. Delegation checkpoints are **named steps** in this workflow — they are not optional "consult if needed" references.
 
+**Step 0: Branch**
+Before any edit, ensure you're on a feature branch — never on `main`/`master`. If currently on the default branch, run `git checkout -b <type>/<slug>` (e.g. `feat/user-auth`, `fix/login-redirect`). Exceptions must be declared explicitly in this repo's `AGENTS.md` / `CLAUDE.md`.
+
 **Step 1: Scope check (delegation gate)**
 Check objective delegation triggers from `docs/delegation.md`:
 - Does the target module exceed the file/LOC threshold? → Delegate to Analysis agent before proceeding.

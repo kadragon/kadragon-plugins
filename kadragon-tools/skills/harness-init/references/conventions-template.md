@@ -109,6 +109,12 @@ TYPE: FEAT | FIX | REFACTOR | DOCS | CONSTRAINT | HARNESS
 - Feature: `feature/{ticket-id}-{short-desc}`
 - Fix: `fix/{ticket-id}-{short-desc}`
 - Hotfix: `hotfix/{short-desc}`
+
+### Branch Policy
+
+- **Never commit directly to `main`/`master`.** Create a feature branch before the first edit of any task.
+- If agents find themselves on the default branch when starting work, they must `git checkout -b` before staging changes.
+- Document any exception (e.g. direct-push repos) explicitly in `AGENTS.md` — default behavior is branch-per-task.
 ```
 
 ## Writing Tips
