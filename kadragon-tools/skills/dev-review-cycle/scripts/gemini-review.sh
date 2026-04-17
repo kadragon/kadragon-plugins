@@ -61,24 +61,25 @@ List findings ordered by priority (P0 first). After all findings, add:
 
 run_gemini() {
   local model="$1"
-  # 300s hard timeout: diff is embedded so no tool calls, but large diffs need time
-  NO_COLOR=1 TERM=dumb timeout 300 gemini -m "$model" -o text -p "$REVIEW_PROMPT" --yolo
+  # The orchestrator already enforces a 600s timeout via run_in_background.
+  # macOS ships without `timeout`, so omit it here to avoid command-not-found errors.
+  NO_COLOR=1 TERM=dumb gemini -m "$model" -o text -p "$REVIEW_PROMPT" --yolo
 }
 
 STDERR_FILE=$(mktemp)
 trap 'rm -f "$STDERR_FILE"' EXIT
 
-# Try with gemini-3.0-pro first (highest quality).
-if run_gemini "gemini-3.0-pro" 2>"$STDERR_FILE"; then
+# Try with auto-gemini-3 first (matches user's ~/.gemini/settings.json default).
+if run_gemini "auto-gemini-3" 2>"$STDERR_FILE"; then
   exit 0
 fi
 
-# Fall back to gemini-3.0-flash only on capacity/rate-limit errors.
+# Fall back to gemini-2.5-flash only on capacity/rate-limit errors.
 if grep -qE "429|RESOURCE_EXHAUSTED|MODEL_CAPACITY_EXHAUSTED|rateLimitExceeded" "$STDERR_FILE"; then
-  echo "gemini-3.0-pro capacity exhausted — retrying with gemini-3.0-flash" >&2
-  run_gemini "gemini-3.0-flash"
+  echo "auto-gemini-3 capacity exhausted — retrying with gemini-2.5-flash" >&2
+  run_gemini "gemini-2.5-flash"
 else
-  # Non-capacity failure (auth, network, timeout, etc.) — surface the error.
+  # Non-capacity failure (auth, network, etc.) — surface the error.
   cat "$STDERR_FILE" >&2
   exit 1
 fi
