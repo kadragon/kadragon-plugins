@@ -113,9 +113,10 @@ def count_items(backlog: str) -> tuple[int, int]:
 def main() -> None:
     tasks_content = read(TASKS)
 
-    # C-1: Sync tasks.md → backlog.md
+    # C-1: Sync tasks.md -> backlog.md
     if tasks_content is not None:
-        status = tasks_field(tasks_content, "status")
+        raw_status = tasks_field(tasks_content, "status")
+        status = raw_status.lower() if raw_status else None
         title = tasks_title(tasks_content)
         backlog = read(BACKLOG) or ""
 
@@ -140,8 +141,16 @@ def main() -> None:
             return
 
         else:
-            print(f"tasks.md has unknown status '{status}' — leaving intact.", file=sys.stderr)
-            sys.exit(1)
+            # Schema drift (missing or unrecognized status). Surface it but do not
+            # abort -- downstream sync sections (D-1 schema check, E, F) still need
+            # to run, and parallel callers cancel on non-zero exit.
+            shown = raw_status if raw_status is not None else "missing"
+            print(
+                f"tasks.md has unknown status '{shown}' -- leaving intact. "
+                "Fix the 'status:' line (active|evaluating|done|failed).",
+                file=sys.stderr,
+            )
+            return
 
     else:
         # C-2: tasks.md absent — clean orphan markers from backlog
