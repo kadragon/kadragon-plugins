@@ -1,13 +1,13 @@
 # Phase 3: Actions
 
-Offer actions in order of safety. Confirm before all destructive actions.
+Present all applicable actions at once. One confirmation per action class, then execute the full pipeline autonomously — see Autonomy Rules in SKILL.md.
 
 ## 3a. Batch Merge Ready PRs
 
-Offer: merge all / select / skip. Merge with:
+Offer to merge all ready PRs in one shot:
 
 ```bash
-gh pr merge {number} -R {owner}/{repo} --squash --delete-branch
+gh pr merge {number} -R {owner}/{repo} --squash
 ```
 
 ## 3b. Handle Multiple Major PRs
@@ -19,22 +19,64 @@ Detect major PRs by title (major version number differs). Merging one makes othe
 
 ## 3c. Handle Rebase-Needed PRs (non-major)
 
-Offer to comment `@dependabot rebase` on each.
-
-## 3d. Analyze Failed PRs
+Comment `@dependabot rebase` on each:
 
 ```bash
-gh pr checks {number} -R {owner}/{repo} --json name,state,detailsUrl --jq '.[] | select(.state == "FAILURE")'
+gh pr comment {number} --repo {owner}/{repo} --body "@dependabot rebase"
 ```
 
-Analyze and suggest fix. Common failure patterns:
+## 3d. CI Failure Analysis + Fix Pipeline
+
+### Step 1: Analyze
+
+Get failed job logs:
+
+```bash
+gh run list --repo {owner}/{repo} --branch {head-branch} --limit 3 --json databaseId,name,conclusion
+gh run view {run-id} --repo {owner}/{repo} --log-failed 2>&1 | head -100
+```
+
+Spawn parallel `sonnet` subagents for repos with different failure patterns. For repos with the same root cause, analyze one and apply the pattern to the rest.
+
+Common failure patterns:
 
 | Pattern | Likely cause |
 |---------|-------------|
+| Runtime version mismatch | Tool upgraded its minimum engine requirement (e.g., wrangler requires Node 22) |
 | Type errors | Breaking API change in dependency |
 | Test failures | Behavioral change in dependency |
 | Build failures | Peer dependency mismatch |
 | Lint failures | New rules introduced by dependency |
+
+### Step 2: Fix Pipeline (once user approves fix approach)
+
+After the user confirms the fix strategy, execute this pipeline autonomously without re-asking:
+
+1. **Create fix PRs** — spawn `sonnet` subagents in parallel, one per repo needing the fix
+2. **Poll CI on fix PRs**:
+   ```bash
+   bash ${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/poll-ci.sh \
+     --timeout 600 "owner/repo1:{fix-pr}" "owner/repo2:{fix-pr}" ...
+   ```
+3. **Merge fix PRs** — once all show `ready`:
+   ```bash
+   gh pr merge {fix-pr} --repo {owner}/{repo} --squash
+   ```
+4. **Trigger rebase on blocked dependabot PRs** — always do this explicitly; Dependabot does not auto-rebase after an infra fix:
+   ```bash
+   gh pr comment {dep-pr} --repo {owner}/{repo} --body "@dependabot rebase"
+   ```
+5. **Re-list open dependabot PRs** — Dependabot may close the original and open a new PR with a different number:
+   ```bash
+   gh pr list --repo {owner}/{repo} --author app/dependabot --state open --json number,title,url
+   ```
+6. **Poll CI on rebased dependabot PRs**:
+   ```bash
+   bash ${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/poll-ci.sh \
+     --timeout 600 "owner/repo1:{new-dep-pr}" ...
+   ```
+7. **Merge dependabot PRs** — once all show `ready`
+8. **Report completion**
 
 ## 3e. Handle No-CI PRs
 
@@ -72,14 +114,4 @@ For repos with 3+ individual PRs and no grouped updates, offer consolidation usi
 - **Python**: `${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/consolidate-deps.py`
 - **Other ecosystems**: Manual workflow via Edit tool. Requires local clone.
 
-### Consolidation Script Workflow
-
-Both scripts follow the same flow:
-
-1. Fetch open dependabot PRs via `gh pr list`
-2. Parse package names and versions from PR titles
-3. Create `chore/deps-combined-update` branch
-4. Apply all version bumps to dependency files
-5. Run tests to verify compatibility
-6. Commit, push, and create consolidated PR
-7. Close individual dependabot PRs with cross-reference
+Both scripts: fetch dependabot PRs → parse versions → create branch → apply bumps → test → commit → push → create consolidated PR → close originals.

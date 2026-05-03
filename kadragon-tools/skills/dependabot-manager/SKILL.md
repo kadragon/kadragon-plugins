@@ -1,6 +1,5 @@
 ---
 name: dependabot-manager
-version: 0.2.0
 description: >
   This skill should be used when the user asks to "manage dependabot PRs",
   "merge dependabot PRs", "clean up dependabot", "consolidate dependency PRs",
@@ -14,23 +13,7 @@ description: >
 
 Manage dependabot PRs across all repos owned by the authenticated GitHub user in three phases: **Discovery → Triage → Action**.
 
-Spawn one subagent per repo when multiple repos have open PRs. Phases 1-2 operate entirely via `gh` CLI (no clone). Phase 3 actions may require local clone for config edits and consolidation.
-
-## Subagent Model Selection
-
-Most tasks are structured CLI execution + simple classification. Use the `model` parameter when spawning subagents:
-
-| Task | Model | Rationale |
-|------|-------|-----------|
-| Phase 2 triage (config audit + PR status) | `haiku` | Pattern matching on gh CLI output |
-| Batch merge (`gh pr merge`) | `haiku` | Repetitive command execution |
-| `@dependabot rebase` comments | `haiku` | Single-command execution |
-| CI wait + merge (polling loop) | `haiku` | Simple polling + conditional merge |
-| CI failure analysis (log reading) | `sonnet` | Reading logs and reasoning about root cause |
-| Config fix PR creation (clone + edit + push) | `sonnet` | File editing + multi-step git workflow |
-| PR consolidation / major bump handling | `sonnet` | Multi-step workflow with judgment calls |
-
-Reserve `opus` (default, no model param) only for tasks requiring complex architectural reasoning — most dependabot tasks do not.
+Phases 1–2 operate entirely via `gh` CLI (no clone). Phase 3 actions may require local clone for config edits and consolidation.
 
 ## Phase 1: Discovery
 
@@ -40,49 +23,85 @@ gh search prs --author app/dependabot --state open --owner @me --json repository
 
 Group by repo, present count summary. If none found, exit early.
 
-## Phase 2: Per-Repo Triage
+## Phase 2: Triage
 
-All checks use `gh` CLI remotely — no local clone needed.
+Use the bundled script to triage all PRs in one pass — no per-repo agents needed:
 
-For each repo, audit dependabot config (check for `groups:` block and `github-actions` ecosystem), then categorize each PR by CI status and mergeability into one of five categories: ready to merge, needs rebase, CI failed, CI pending, or no CI.
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/triage.sh \
+  "owner/repo1:123" "owner/repo2:456" ...
+```
+
+The script returns a JSON array with `category` for each PR:
+
+| Emoji | Category | Condition |
+|---|---|---|
+| ✅ | `ready` | CI passed + `mergeStateStatus: CLEAN` |
+| 🔄 | `needs_rebase` | `CONFLICTING` or `BEHIND` |
+| ❌ | `ci_failed` | Any check `FAILURE` |
+| ⏳ | `ci_pending` | Checks still running |
+| ⚪ | `no_ci` | No status checks configured |
+
+Also audit dependabot config per repo (one `gh api` call each) — check for `groups:` block and `github-actions` ecosystem. See **`references/triage.md`** for details.
 
 Present categorized results per repo with emoji prefix.
 
-For detailed triage procedures, consult **`references/triage.md`**.
-
 ## Phase 3: Action
 
-Offer actions in order of safety. Confirm before all destructive actions.
+Present all applicable actions at once after triage — don't offer them serially one-by-one. See **`references/actions.md`** for each action's procedure.
 
 | Priority | Action | When |
 |----------|--------|------|
 | 1 | Batch merge ready PRs | CI passed + mergeable |
 | 2 | Handle major PRs | Major version bumps detected |
 | 3 | Rebase stale PRs | CI passed but conflicting/behind |
-| 4 | Analyze CI failures | Any check failed |
+| 4 | Analyze CI failures → fix pipeline | Any check failed |
 | 5 | Warn about no-CI PRs | No status checks configured |
 | 6 | Configure grouped updates | Missing or partial config |
 | 7 | Consolidate ungrouped PRs | 3+ individual PRs, no groups |
 
-For detailed action procedures, consult **`references/actions.md`**.
+## Autonomy Rules
 
-## Interaction Rules
+**One confirmation per action class, then chain autonomously.** Once the user approves an action, complete the full pipeline without re-asking at each step.
 
-- Respond in the user's language; keep technical artifacts (commits, PRs, branches) in English.
-- Confirm before destructive actions; default to report-only.
-- Errors: unauthenticated → suggest `gh auth login`; rate-limited → reduce scope; permission denied → report which repos.
+Pause and confirm only:
+- First merge of a session (e.g., "merge these N ready PRs?")
+- First PR creation (e.g., "create fix PRs for these N repos?")
+- Unexpected CI failure in a PR that was previously passing
+- Dependabot replaced a PR with a new one (report the new PR number/scope and confirm merge)
+
+Never pause for:
+- Polling CI status
+- Triggering `@dependabot rebase` after merging a CI infra fix
+- Merging a PR that CI just passed as part of an already-approved pipeline
+
+## Known Gotchas
+
+- **Rebase is not automatic**: After merging a CI infra fix (e.g., Node.js version bump), Dependabot does NOT automatically rebase blocked PRs — always send `@dependabot rebase` explicitly.
+- **Dependabot may replace PRs**: After a rebase, check `--author app/dependabot --state open` rather than querying original PR numbers — Dependabot sometimes closes a stale PR and creates a new one with different number and updated scope.
+
+## Subagent Model Selection
+
+Spawn subagents only for tasks that require reading and reasoning (CI log analysis, multi-step git workflows). Scripts handle the rest.
+
+| Task | Model |
+|------|-------|
+| CI failure log analysis | `sonnet` |
+| Config fix PR creation (clone + edit + push) | `sonnet` |
+| PR consolidation / major bump handling | `sonnet` |
 
 ## Scripts
 
-Bundled consolidation scripts for repos with many ungrouped PRs:
-
-- **`scripts/consolidate-deps.cjs`** — npm/Node.js projects. Updates `package.json`, runs `npm install` and `npm test`.
-- **`scripts/consolidate-deps.py`** — Python projects. Supports uv, poetry, pip-tools, and requirements.txt.
-
-Both scripts: fetch dependabot PRs → parse versions → create branch → apply bumps → test → commit → push → create consolidated PR → close originals.
-
-Invoke via:
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/consolidate-deps.cjs
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/consolidate-deps.py
 ```
+scripts/triage.sh           — batch triage; replaces per-repo triage agents
+scripts/poll-ci.sh          — poll until all PRs reach terminal CI state
+scripts/consolidate-deps.cjs — consolidate npm/Node.js dependabot PRs
+scripts/consolidate-deps.py  — consolidate Python dependabot PRs
+```
+
+Invoke via `${CLAUDE_PLUGIN_ROOT}/skills/dependabot-manager/scripts/<name>`.
+
+## Interaction
+
+- Respond in the user's language; keep technical artifacts (commits, PRs, branches) in English.
+- Errors: unauthenticated → suggest `gh auth login`; rate-limited → reduce scope; permission denied → report which repos.
