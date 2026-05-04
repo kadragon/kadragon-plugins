@@ -6,8 +6,7 @@
 # - Otherwise, CLAUDE.md itself is the effective file.
 #
 # Exit codes:
-#   0  Under limit (or neither file exists) — silent
-#   1  Over limit — prints one warning line to stdout
+#   0  Always — overflow is signaled via stdout only, not exit code
 #
 # Rationale: CLAUDE.md / AGENTS.md is re-loaded with every user message.
 # Past ~200 lines the per-message token cost starts dominating the context budget
@@ -52,7 +51,7 @@ if [ "$lines" -gt "$LIMIT" ]; then
       "$h2_dup" "$h2_uniq"
   fi
 
-  exit 1
+  # Informational warning only — exit 0 so parallel siblings are not cancelled.
 fi
 
 exit 0
