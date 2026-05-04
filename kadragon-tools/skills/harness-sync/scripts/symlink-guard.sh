@@ -38,13 +38,12 @@ if [ ! -e "$LINK" ]; then
     echo "Symlink updated: $LINK → $TARGET"
     exit 0
   fi
-  # ln -s fell back to a directory copy (Windows without symlink support)
+  # ln -s fell back to a directory copy (Windows without symlink support).
+  # Auto-recover by writing the git mode-120000 text form — works on POSIX peers.
   rm -rf "$LINK"
-  echo "symlink-guard: ln -s fell back to directory copy (Windows without symlink support)."
-  echo "  Fix: git config core.symlinks true  &&  enable Windows Developer Mode,"
-  echo "       then: git checkout HEAD -- .agents/skills"
-  echo "  Or commit the text form as-is — it works on POSIX peers via git mode-120000."
-  exit 2
+  printf '%s' "$TARGET" > "$LINK"
+  echo "symlink-guard: wrote text-form pointer at $LINK (Windows without symlink support)"
+  exit 0
 fi
 
 # Case 5: unexpected state (wrong-content file, directory, etc.) — do not destroy, report
