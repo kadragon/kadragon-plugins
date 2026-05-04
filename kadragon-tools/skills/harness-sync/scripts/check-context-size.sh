@@ -52,7 +52,7 @@ if [ "$lines" -gt "$LIMIT" ]; then
       "$h2_dup" "$h2_uniq"
   fi
 
-  exit 1
+  # Informational warning only — exit 0 so parallel siblings are not cancelled.
 fi
 
 exit 0
