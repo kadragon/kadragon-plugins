@@ -55,13 +55,14 @@ If already on a non-base branch, skip this step.
 
 ### Step 1: Commit (and Create PR unless `--no-hub`)
 
-Before delegating, **determine the commit message yourself**:
+Before delegating, **determine the commit message and file list yourself**:
 
 - If you have context from recent development or from Step 0's `git diff` read, use it directly.
 - Otherwise (cold invocation), run `git diff --stat HEAD` to understand what changed.
 - Run `git log --oneline -5` to match the project's commit style.
+- Collect the list of changed files: `git diff --name-only HEAD` (for tracked changes) combined with `git ls-files --others --exclude-standard` (for untracked new files). Merge into a single space-separated list.
 
-Write the commit message, then **replace `${COMMIT_MESSAGE}` with the actual text** before passing the prompt to the Agent tool. Do NOT ask the subagent to analyze the diff.
+Write the commit message and the file list, then **replace `${COMMIT_MESSAGE}` and `${FILES_TO_STAGE}` with the actual values** before passing the prompt to the Agent tool. Do NOT ask the subagent to analyze the diff or figure out which files to stage.
 
 Delegate only the mechanical git operations to a **subagent**.
 
@@ -72,13 +73,13 @@ Agent tool parameters:
   description: "Commit changes locally"
   model: "sonnet"
   prompt: |
-    Commit all staged and unstaged changes in the current repository using this exact message:
+    Commit the following files using this exact message:
+    Files: ${FILES_TO_STAGE}
     ---
     ${COMMIT_MESSAGE}
     ---
-    1. Run `git status` to confirm there are changes to commit.
-    2. Stage all relevant files with `git add`.
-    3. Create the commit with the message above (do NOT rewrite it).
+    1. Stage exactly the listed files: `git add ${FILES_TO_STAGE}`
+    2. Create the commit with the message above (do NOT rewrite it).
     Report the commit hash when done.
 ```
 
@@ -91,15 +92,15 @@ Agent tool parameters:
   description: "Commit, push, and create PR"
   model: "sonnet"
   prompt: |
-    Commit, push, and create a PR for the current changes using this exact commit message:
+    Commit, push, and create a PR using this exact commit message:
+    Files: ${FILES_TO_STAGE}
     ---
     ${COMMIT_MESSAGE}
     ---
-    1. Run `git status` to confirm there are changes to commit.
-    2. Stage all relevant files with `git add`.
-    3. Create the commit with the message above (do NOT rewrite it).
-    4. Push the branch to origin.
-    5. Create a pull request using `gh pr create`.
+    1. Stage exactly the listed files: `git add ${FILES_TO_STAGE}`
+    2. Create the commit with the message above (do NOT rewrite it).
+    3. Push the branch to origin.
+    4. Create a pull request using `gh pr create`.
     Report the PR number and URL when done.
 ```
 
@@ -176,7 +177,7 @@ After improvements are applied and tests pass, immediately proceed to Step 5.
 
 ### Step 5: Commit (and Push unless `--no-hub`)
 
-**Determine the commit message yourself** based on which improvements you just applied — you have full context from Step 4. Write a concise message summarizing the changes. **Replace `${COMMIT_MESSAGE}` with the actual text** before passing the prompt to the Agent tool. Do NOT ask the subagent to re-analyze the diff.
+**Determine the commit message and file list yourself** based on which improvements you just applied — you have full context from Step 4. You already know which files you edited. Write a concise commit message and compile the exact file list. **Replace `${COMMIT_MESSAGE}` and `${FILES_TO_STAGE}` with the actual values** before passing the prompt to the Agent tool. Do NOT ask the subagent to re-analyze the diff or discover modified files.
 
 Delegate only the mechanical git operations to a **subagent**.
 
@@ -187,13 +188,13 @@ Agent tool parameters:
   description: "Commit review improvements locally"
   model: "sonnet"
   prompt: |
-    Commit the review improvements locally (do NOT push) using this exact message:
+    Commit the following files locally (do NOT push) using this exact message:
+    Files: ${FILES_TO_STAGE}
     ---
     ${COMMIT_MESSAGE}
     ---
-    1. Run `git status` to see which files were modified.
-    2. Stage only the modified files with `git add`.
-    3. Create the commit with the message above (do NOT rewrite it).
+    1. Stage exactly the listed files: `git add ${FILES_TO_STAGE}`
+    2. Create the commit with the message above (do NOT rewrite it).
     Do NOT push. Report the commit hash when done.
 ```
 
@@ -206,14 +207,14 @@ Agent tool parameters:
   description: "Commit and push review improvements"
   model: "sonnet"
   prompt: |
-    Commit and push review improvements using this exact message:
+    Commit and push the following files using this exact message:
+    Files: ${FILES_TO_STAGE}
     ---
     ${COMMIT_MESSAGE}
     ---
-    1. Run `git status` to see which files were modified.
-    2. Stage only the modified files with `git add`.
-    3. Create the commit with the message above (do NOT rewrite it).
-    4. Push to origin (same branch). Do NOT create a new PR.
+    1. Stage exactly the listed files: `git add ${FILES_TO_STAGE}`
+    2. Create the commit with the message above (do NOT rewrite it).
+    3. Push to origin (same branch). Do NOT create a new PR.
     Report the commit hash when done.
 ```
 
